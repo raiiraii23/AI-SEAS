@@ -1,0 +1,94 @@
+services:
+  ai-engine:
+    build:
+      context: ./ai-engine
+      dockerfile: Dockerfile
+    container_name: seas_ai_engine
+    restart: unless-stopped
+    environment:
+      - MODEL_PATH=/app/models/emotion_model.h5
+      - PORT=8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ai-engine/models:/app/models
+    networks:
+      - seas_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: seas_backend
+    restart: unless-stopped
+    # NOTE: No db service dependency — using SQLite temporarily for development.
+    # Restore depends_on: db and switch DB_CONNECTION to pgsql for production.
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - APP_KEY=${APP_KEY}
+      - APP_DEBUG=${APP_DEBUG:-false}
+      - DB_CONNECTION=sqlite
+      - AI_ENGINE_URL=http://ai-engine:8000
+    volumes:
+      - seas_sqlite:/var/www/html/database
+    networks:
+      - seas_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: seas_frontend
+    restart: unless-stopped
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=/api/v1
+      - NEXT_PUBLIC_AI_BASE_URL=/api/ai
+    networks:
+      - seas_network
+
+  # NOTE: PostgreSQL service disabled temporarily (using SQLite for development).
+  # Uncomment and restore backend depends_on when switching to production.
+  # db:
+  #   image: postgres:16-alpine
+  #   container_name: seas_db
+  #   environment:
+  #     - POSTGRES_DB=${DB_DATABASE:-seas_db}
+  #     - POSTGRES_USER=${DB_USERNAME:-seas_user}
+  #     - POSTGRES_PASSWORD=${DB_PASSWORD}
+  #   volumes:
+  #     - seas_pgdata:/var/lib/postgresql/data
+  #   networks:
+  #     - seas_network
+
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: seas_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - ai-engine
+      - backend
+      - frontend
+    networks:
+      - seas_network
+
+networks:
+  seas_network:
+    driver: bridge
+
+volumes:
+  seas_sqlite:
+  # seas_pgdata:  # restore when switching to PostgreSQL

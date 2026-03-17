@@ -1,0 +1,5 @@
+.git
+*.md
+training/data
+__pycache__
+*.pyc
