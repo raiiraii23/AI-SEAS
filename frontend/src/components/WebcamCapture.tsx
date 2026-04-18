@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { FaceDetector, FilesetResolver } from "@mediapipe/tasks-vision";
 
 interface Props {
@@ -25,16 +25,65 @@ export default function WebcamCapture({
   emotion,
   confidence,
 }: Props) {
-  const videoRef    = useRef<HTMLVideoElement>(null);
-  const captureRef  = useRef<HTMLCanvasElement>(null);   // hidden, for JPEG frames
-  const overlayRef  = useRef<HTMLCanvasElement>(null);   // visible, for drawing
-  const streamRef   = useRef<MediaStream | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const rafRef      = useRef<number | null>(null);
-  const detectorRef = useRef<FaceDetector | null>(null);
-  const emotionRef  = useRef<{ label: string; conf: number } | null>(null);
+  const streamImgRef    = useRef<HTMLImageElement>(null);
+  const canvasRef       = useRef<HTMLCanvasElement>(null);   // hidden canvas for frame capture
+  const overlayRef      = useRef<HTMLCanvasElement>(null);   // visible canvas for drawing
+  const intervalRef     = useRef<ReturnType<typeof setInterval> | null>(null);
+  const rafRef          = useRef<number | null>(null);
+  const detectorRef     = useRef<FaceDetector | null>(null);
+  const emotionRef      = useRef<{ label: string; conf: number } | null>(null);
+  const reconnectTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [detectorReady, setDetectorReady] = useState(false);
+  const [streamStatus, setStreamStatus] = useState<"connecting" | "connected" | "error">("connecting");
+
+  // ---- MJPEG stream connection with auto-reconnect ----
+  const connectStream = useCallback(() => {
+    const img = streamImgRef.current;
+    if (!img) return;
+
+    // Clear any pending reconnect
+    if (reconnectTimer.current) {
+      clearTimeout(reconnectTimer.current);
+      reconnectTimer.current = null;
+    }
+
+    setStreamStatus("connecting");
+
+    // Bust cache with a unique timestamp so the browser opens a fresh connection
+    const streamUrl = `/api/ai/emotion/stream?t=${Date.now()}`;
+    img.src = "";
+
+    img.onload = () => {
+      // For MJPEG multipart streams, onload fires each time a new frame arrives
+      // in some browsers, or once on first frame in others. Either way, mark connected.
+      setStreamStatus("connected");
+    };
+
+    img.onerror = () => {
+      setStreamStatus("error");
+      // Auto-reconnect after 3 seconds
+      reconnectTimer.current = setTimeout(() => {
+        connectStream();
+      }, 3000);
+    };
+
+    img.src = streamUrl;
+  }, []);
+
+  // Connect on mount, clean up on unmount
+  useEffect(() => {
+    connectStream();
+
+    return () => {
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      if (streamImgRef.current) {
+        streamImgRef.current.onload = null;
+        streamImgRef.current.onerror = null;
+        streamImgRef.current.src = "";
+      }
+    };
+  }, [connectStream]);
 
   // Keep a ref so the draw loop always has the latest emotion without re-creating it
   useEffect(() => {
@@ -68,79 +117,64 @@ export default function WebcamCapture({
 
   useEffect(() => {
     if (isActive && detectorReady) {
-      startCamera();
-    } else {
-      stopCamera();
-    }
-    return () => stopCamera();
-  }, [isActive, detectorReady]);
-
-  async function startCamera() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-      // Emotion-prediction capture loop (throttled)
       intervalRef.current = setInterval(captureFrame, captureIntervalMs);
-      // Real-time detection draw loop
       drawLoop();
-    } catch (err) {
-      console.error("Camera access denied:", err);
+    } else {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      const overlay = overlayRef.current;
+      if (overlay) overlay.getContext("2d")!.clearRect(0, 0, overlay.width, overlay.height);
     }
-  }
-
-  function stopCamera() {
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    const overlay = overlayRef.current;
-    if (overlay) overlay.getContext("2d")!.clearRect(0, 0, overlay.width, overlay.height);
-  }
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [isActive, detectorReady, captureIntervalMs]);
 
   function captureFrame() {
-    const video  = videoRef.current;
-    const canvas = captureRef.current;
-    if (!video || !canvas || video.readyState < 2) return;
-    canvas.width  = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext("2d")!.drawImage(video, 0, 0);
-    canvas.toBlob((blob) => { if (blob) onFrame(blob); }, "image/jpeg", 0.8);
+    const img    = streamImgRef.current;
+    const canvas = canvasRef.current;
+    if (!img || !canvas || !img.naturalWidth) return;
+    canvas.width  = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    try {
+      ctx.drawImage(img, 0, 0);
+      canvas.toBlob((blob) => { if (blob) onFrame(blob); }, "image/jpeg", 0.8);
+    } catch {
+      // CORS or other restriction
+    }
   }
 
   function drawLoop() {
-    const video   = videoRef.current;
+    const img     = streamImgRef.current;
     const overlay = overlayRef.current;
     const detector = detectorRef.current;
 
-    if (!video || !overlay || !detector || video.readyState < 2) {
+    if (!img || !overlay || !detector) {
       rafRef.current = requestAnimationFrame(drawLoop);
       return;
     }
 
-    // Sync overlay size to displayed video size
-    if (overlay.width !== video.clientWidth || overlay.height !== video.clientHeight) {
-      overlay.width  = video.clientWidth;
-      overlay.height = video.clientHeight;
+    // Sync overlay size to displayed image size
+    if (overlay.width !== img.clientWidth || overlay.height !== img.clientHeight) {
+      overlay.width  = img.clientWidth;
+      overlay.height = img.clientHeight;
     }
 
     const ctx = overlay.getContext("2d")!;
     ctx.clearRect(0, 0, overlay.width, overlay.height);
 
     try {
-      const result = detector.detectForVideo(video, performance.now());
+      const result = detector.detectForVideo(img, performance.now());
       for (const detection of result.detections) {
         const bb = detection.boundingBox;
         if (!bb) continue;
 
-        // MediaPipe returns pixel coords relative to the source video dimensions
-        const scaleX = overlay.width  / video.videoWidth;
-        const scaleY = overlay.height / video.videoHeight;
+        // MediaPipe returns pixel coords relative to the source image dimensions
+        const scaleX = overlay.width  / img.naturalWidth;
+        const scaleY = overlay.height / img.naturalHeight;
         const x = bb.originX * scaleX;
         const y = bb.originY * scaleY;
         const w = bb.width   * scaleX;
@@ -191,12 +225,34 @@ export default function WebcamCapture({
 
   return (
     <div className="relative bg-gray-900 rounded-xl overflow-hidden border border-gray-800 aspect-video flex items-center justify-center">
-      <video ref={videoRef} muted playsInline className="w-full h-full object-cover" />
-      <canvas ref={captureRef} className="hidden" />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        ref={streamImgRef}
+        className="w-full h-full object-contain"
+        alt="Camera Stream"
+        crossOrigin="anonymous"
+        style={{ imageRendering: "auto" }}
+      />
+      <canvas ref={canvasRef} className="hidden" />
       <canvas ref={overlayRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-      {!isActive && (
-        <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm">
-          Camera inactive — start a session to begin
+
+      {/* Status overlays */}
+      {streamStatus === "connecting" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70">
+          <div className="w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full animate-spin mb-3" />
+          <span className="text-blue-400 text-sm">Connecting to camera stream…</span>
+        </div>
+      )}
+      {streamStatus === "error" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 text-center px-4">
+          <span className="text-red-400 text-sm font-medium mb-1">Camera stream unavailable</span>
+          <span className="text-gray-500 text-xs">Retrying automatically…</span>
+        </div>
+      )}
+      {streamStatus === "connected" && (
+        <div className="absolute top-2 right-2 flex items-center gap-1.5 text-xs text-green-400 bg-black/60 px-2 py-1 rounded">
+          <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+          Live
         </div>
       )}
       {isActive && !detectorReady && (

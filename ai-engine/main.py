@@ -1,14 +1,18 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import os
 
 from app.routes import emotion
 from app.models.model_loader import load_model_on_startup
+from app.services.rtsp_stream import init_rtsp_manager
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_model_on_startup()
+    rtsp_url = os.getenv("RTSP_URL", "rtsp://python_stream:Raiiraii23!@192.168.8.15:554/stream1")
+    init_rtsp_manager(rtsp_url)
     yield
 
 

@@ -1,4 +1,6 @@
-FROM php:8.3-fpm-alpine AS base
+FROM php:8.2-fpm-alpine AS base
+
+ENV COMPOSER_ALLOW_SUPERUSER=1
 
 # Install PHP extensions
 # NOTE: Using SQLite temporarily for development. Minimal deps only.
@@ -13,9 +15,12 @@ WORKDIR /var/www/html
 
 # Install Laravel and dependencies
 COPY composer.json composer.lock* ./
-RUN composer install --no-dev --optimize-autoloader --no-interaction
+RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts
 
 COPY . .
+
+RUN mkdir -p bootstrap/cache \
+    && composer dump-autoload --optimize --no-dev --no-interaction
 
 RUN chown -R www-data:www-data storage bootstrap/cache database \
     && chmod -R 775 storage bootstrap/cache database

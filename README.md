@@ -42,47 +42,52 @@ A facial emotion recognition system that monitors student engagement in real tim
 
 ## Setup Guide
 
-### Prerequisites
+### Step 1 — Install Docker Desktop
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
-- [Python 3.11+](https://www.python.org/) (for model training only)
-- [Kaggle CLI](https://www.kaggle.com/docs/api) (for downloading the dataset)
+Download and install Docker Desktop from:
+**https://www.docker.com/products/docker-desktop/**
 
----
+After installing, launch Docker Desktop and wait until it shows **"Engine running"** in the bottom left. Keep it open in the background the entire time.
 
-### Step 1 — Clone and configure environment
-
-```bash
-cd mark-thesis
-cp .env.example .env
-```
-
-Open `.env` and fill in:
-
-```env
-APP_KEY=        # generate with: php artisan key:generate (or any 32-char string)
-JWT_SECRET=     # generate with: php artisan jwt:secret (or any long random string)
-```
-
-> **Database note:** The project currently uses **SQLite** for development convenience.
-> The database file is stored at `backend/database/database.sqlite` and is created automatically on first run.
-> This will be switched to **PostgreSQL** before final deployment — see the commented-out `db` service in `docker-compose.yml`.
+> Restart your terminal after installing so the `docker` command is available.
 
 ---
 
-### Step 2 — Train the CNN model
+### Step 2 — Install the Kaggle CLI
 
-The system needs a trained model file before the AI engine will work.
-
-**2a. Download the FER-2013 dataset**
+Open a terminal and run:
 
 ```bash
-cd ai-engine/training
+pip install kaggle
+```
+
+Then get your Kaggle API key:
+1. Go to **https://www.kaggle.com** and log in
+2. Click your profile picture → **Settings**
+3. Scroll to the **API** section → click **Create New Token**
+4. This downloads a file called `kaggle.json`
+
+Place that file here (create the folder if it doesn't exist):
+```
+C:\Users\Ryan\.kaggle\kaggle.json
+```
+
+Verify it works:
+```bash
+kaggle --version
+```
+
+---
+
+### Step 3 — Download the FER-2013 dataset
+
+```bash
+cd C:/Users/Ryan/Desktop/markie/AI-SEAS/ai-engine/training
 kaggle datasets download -d msambare/fer2013
 unzip fer2013.zip -d data
 ```
 
-The folder should look like:
+When done, the folder should look like:
 ```
 ai-engine/training/data/
 ├── train/
@@ -94,59 +99,88 @@ ai-engine/training/data/
 │   ├── sad/
 │   └── surprise/
 └── test/
-    └── ...
+    └── (same structure)
 ```
 
-**2b. Install Python dependencies and train**
+---
+
+### Step 4 — Train the CNN model
 
 ```bash
-cd ai-engine
+cd C:/Users/Ryan/Desktop/markie/AI-SEAS/ai-engine
 pip install -r requirements.txt
 python training/train.py --train_dir training/data/train --test_dir training/data/test
 ```
 
-Training takes 30–60 minutes on a CPU, or ~10 minutes on a GPU. When done, the model is saved to:
+Training takes **30–60 minutes on CPU**, or ~10 minutes on a GPU. When done you should see:
+
 ```
-ai-engine/models/emotion_model.h5
+[RESULT] Test Accuracy: ...
+[INFO] Model saved to .../ai-engine/models/emotion_model.h5
 ```
+
+Confirm the file exists before continuing:
+```bash
+ls models/
+# should show: emotion_model.h5
+```
+
+> **The AI engine container will not start without this file.**
 
 ---
 
-### Step 3 — Start all services
+### Step 5 — Configure the environment file
 
-From the project root:
+Copy the example file:
+```bash
+cd C:/Users/Ryan/Desktop/markie/AI-SEAS
+cp .env.example .env
+```
+
+Generate an `APP_KEY` (run this in your terminal and copy the output):
+```bash
+python -c "import base64, os; print('base64:' + base64.b64encode(os.urandom(32)).decode())"
+```
+
+Generate a `JWT_SECRET` (run this and copy the output):
+```bash
+python -c "import secrets; print(secrets.token_hex(64))"
+```
+
+Open `.env` and paste the values in:
+```env
+APP_KEY=base64:...   # paste output from first command
+JWT_SECRET=...       # paste output from second command
+```
+
+Leave everything else as-is for local development.
+
+---
+
+### Step 6 — Start all services
+
+Make sure Docker Desktop is running, then from the project root:
 
 ```bash
-docker-compose up --build
+cd C:/Users/Ryan/Desktop/markie/AI-SEAS
+                                                                                                                                                                                                      
 ```
 
 This starts:
-- PostgreSQL database
-- Laravel backend (port 8080 internally)
-- FastAPI AI engine (port 8000 internally)
-- Next.js frontend (port 3000 internally)
-- Nginx reverse proxy (port **80** externally)
+- Laravel backend (SQLite database, auto-migrated on startup)
+- FastAPI AI engine (loads the trained model)
+- Next.js frontend
+- Nginx reverse proxy on **port 80**
 
-Wait until all containers are healthy (about 30–60 seconds on first run).
-
----
-
-### Step 4 — Run database migrations
-
-Migrations and seeding run automatically on container startup. If you need to run them manually:
-
-```bash
-docker exec seas_backend php artisan migrate --force
-docker exec seas_backend php artisan db:seed --force
-```
+Wait until all containers show as healthy — about **30–60 seconds** on first run.
 
 ---
 
-### Step 5 — Open the app
+### Step 7 — Open the app
 
 Go to: **http://localhost**
 
-A default account is created automatically by the seeder:
+A default account is created automatically:
 
 | Field | Value |
 |---|---|
@@ -170,7 +204,7 @@ npm run dev
 
 Open **http://localhost:3000**
 
-> For API calls to work, you also need the backend and AI engine running (either via Docker or separately).
+> For API calls to work, the backend and AI engine must also be running (via Docker).
 
 ---
 
@@ -194,10 +228,23 @@ Open **http://localhost:3000**
 ## Troubleshooting
 
 **AI engine keeps restarting**
-The model file is missing. Make sure `ai-engine/models/emotion_model.h5` exists before starting Docker.
+The model file is missing. Make sure `ai-engine/models/emotion_model.h5` exists before starting Docker. Re-run Step 4.
+
+**`docker` command not found**
+Docker Desktop is not installed or you haven't restarted your terminal after installing. Re-run Step 1.
+
+**`kaggle` command not found**
+Run `pip install kaggle` and make sure `kaggle.json` is placed at `C:\Users\Ryan\.kaggle\kaggle.json`. Re-run Step 2.
+
+**`from preprocess import` error during training**
+Make sure you run the train command from the `ai-engine/` directory, not from `ai-engine/training/`. Re-run Step 4 from the correct directory.
 
 **`php artisan migrate` fails**
-The database container may still be starting. Wait a few seconds and retry.
+Migrations run automatically on startup. If you need to run manually:
+```bash
+docker exec seas_backend php artisan migrate --force
+docker exec seas_backend php artisan db:seed --force
+```
 
 **Camera not showing in browser**
 Browsers require HTTPS for webcam access on non-localhost origins. For local development on `http://localhost` it works fine.
