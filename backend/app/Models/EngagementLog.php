@@ -9,12 +9,13 @@ class EngagementLog extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['session_id', 'emotion', 'confidence', 'engagement', 'all_scores', 'logged_at'];
+    protected $fillable = ['session_id', 'face_index', 'emotion', 'confidence', 'engagement', 'all_scores', 'logged_at'];
 
     protected $casts = [
         'all_scores' => 'array',
         'logged_at'  => 'datetime',
         'confidence' => 'float',
+        'face_index' => 'integer',
     ];
 
     public function session()

@@ -1,30 +1,27 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import WebcamCapture from "@/components/WebcamCapture";
 import EmotionChart from "@/components/EmotionChart";
-import EngagementBadge from "@/components/EngagementBadge";
+import ClassroomStats from "@/components/ClassroomStats";
 import { api } from "@/lib/api";
-
-interface LogEntry {
-  emotion: string;
-  confidence: number;
-  engagement: string;
-  timestamp: number;
-}
+import { FaceResult, LogEntry } from "@/lib/types";
 
 export default function DashboardPage() {
-  const [sessionId, setSessionId] = useState<number | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [latestResult, setLatestResult] = useState<LogEntry | null>(null);
+  const [sessionId, setSessionId]     = useState<number | null>(null);
+  const [isRunning, setIsRunning]     = useState(false);
+  const [logs, setLogs]               = useState<LogEntry[]>([]);
+  const [currentFaces, setCurrentFaces] = useState<FaceResult[]>([]);
   const sessionTitle = useRef(`Session ${new Date().toLocaleString()}`);
+  const frameCount   = useRef(0);
 
   async function startSession() {
     const { data } = await api.post("/sessions", { title: sessionTitle.current });
     setSessionId(data.id);
     setIsRunning(true);
     setLogs([]);
+    setCurrentFaces([]);
+    frameCount.current = 0;
   }
 
   async function stopSession() {
@@ -46,25 +43,40 @@ export default function DashboardPage() {
         baseURL: "",
       });
 
-      if (!data.success || !data.result?.face_detected) return;
+      if (!data.success || !data.results?.length) {
+        setCurrentFaces([]);
+        return;
+      }
 
-      const entry: LogEntry = {
-        emotion:    data.result.emotion,
-        confidence: data.result.confidence,
-        engagement: data.result.engagement,
-        timestamp:  Date.now(),
-      };
+      const faces: FaceResult[] = data.results;
+      setCurrentFaces(faces);
 
-      setLatestResult(entry);
-      setLogs((prev) => [...prev.slice(-299), entry]);
+      const now = Date.now();
+      const newEntries: LogEntry[] = faces.map((f) => ({
+        face_index: f.face_index,
+        emotion:    f.emotion,
+        confidence: f.confidence,
+        engagement: f.engagement,
+        timestamp:  now,
+      }));
 
-      // Persist to backend every 5th frame
-      if (logs.length % 5 === 0) {
-        await api.post(`/sessions/${sessionId}/logs`, {
-          emotion:    entry.emotion,
-          confidence: entry.confidence,
-          engagement: entry.engagement,
-        });
+      // Keep up to 1800 raw entries (30 faces × 60 frames)
+      setLogs((prev) => [...prev.slice(-1800), ...newEntries]);
+
+      // Persist every 5th frame
+      frameCount.current += 1;
+      if (frameCount.current % 5 === 0) {
+        await Promise.all(
+          faces.map((f) =>
+            api.post(`/sessions/${sessionId}/logs`, {
+              emotion:    f.emotion,
+              confidence: f.confidence,
+              engagement: f.engagement,
+              all_scores: f.all_scores,
+              face_index: f.face_index,
+            })
+          )
+        );
       }
     } catch {
       // silently ignore network errors during capture
@@ -100,10 +112,9 @@ export default function DashboardPage() {
             isActive={isRunning}
             onFrame={handleFrame}
             captureIntervalMs={1000}
-            emotion={latestResult?.emotion ?? null}
-            confidence={latestResult?.confidence ?? null}
+            faceResults={currentFaces}
           />
-          {latestResult && <EngagementBadge engagement={latestResult.engagement} emotion={latestResult.emotion} confidence={latestResult.confidence} />}
+          <ClassroomStats faceResults={currentFaces} />
         </div>
 
         <div>

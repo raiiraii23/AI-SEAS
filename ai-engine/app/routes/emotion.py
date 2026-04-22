@@ -4,9 +4,9 @@ import numpy as np
 import cv2
 import asyncio
 
-from app.schemas import PredictResponse, EmotionResult, BoundingBox
-from app.services.face_service import detect_and_crop_face
-from app.services.emotion_service import predict_emotion
+from app.schemas import PredictResponse, FaceResult, BoundingBox
+from app.services.face_service import detect_and_crop_faces
+from app.services.emotion_service import predict_emotions
 from app.services.rtsp_stream import get_rtsp_manager
 
 router = APIRouter()
@@ -37,25 +37,28 @@ async def predict(file: UploadFile = File(...)):
     if frame is None:
         raise HTTPException(status_code=400, detail="Could not decode image.")
 
-    face_roi, bbox_dict = detect_and_crop_face(frame)
-    if face_roi is None:
-        return PredictResponse(
-            success=False,
-            result=EmotionResult(
-                emotion="unknown",
-                confidence=0.0,
-                engagement="unknown",
-                all_scores={},
-                face_detected=False,
-            ),
-            message="No face detected in the image.",
+    face_list = detect_and_crop_faces(frame)
+    if not face_list:
+        return PredictResponse(success=False, face_count=0, message="No faces detected.")
+
+    rois   = [roi  for roi,  _    in face_list]
+    bboxes = [bbox for _,    bbox in face_list]
+
+    emotion_results = predict_emotions(rois)
+
+    results = [
+        FaceResult(
+            face_index=i,
+            bbox=BoundingBox(**bboxes[i]),
+            emotion=emotion_results[i].emotion,
+            confidence=emotion_results[i].confidence,
+            engagement=emotion_results[i].engagement,
+            all_scores=emotion_results[i].all_scores,
         )
+        for i in range(len(face_list))
+    ]
 
-    result = predict_emotion(face_roi)
-    result.face_detected = True
-    result.bbox = BoundingBox(**bbox_dict)
-
-    return PredictResponse(success=True, result=result)
+    return PredictResponse(success=True, results=results, face_count=len(results))
 
 
 @router.get("/stream")

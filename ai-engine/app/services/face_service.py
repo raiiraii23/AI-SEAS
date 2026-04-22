@@ -15,42 +15,49 @@ _PAD_RATIO = 0.2
 _clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
 
 
-def detect_and_crop_face(frame: np.ndarray) -> tuple[np.ndarray, dict] | tuple[None, None]:
+def detect_and_crop_faces(frame: np.ndarray) -> list[tuple[np.ndarray, dict]]:
+    """Return all detected faces as (roi_48x48_gray, bbox_dict) sorted left-to-right."""
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = _detector.process(rgb)
 
     if not results.detections:
-        return None, None
+        return []
 
-    best = max(results.detections, key=lambda d: d.score[0])
-    bboxC = best.location_data.relative_bounding_box
     h, w = frame.shape[:2]
+    faces = []
 
-    bw_px = int(bboxC.width * w)
-    bh_px = int(bboxC.height * h)
-    if bw_px < _MIN_FACE_PX or bh_px < _MIN_FACE_PX:
-        return None, None
+    for detection in results.detections:
+        bboxC = detection.location_data.relative_bounding_box
 
-    pad_x = int(bw_px * _PAD_RATIO)
-    pad_y = int(bh_px * _PAD_RATIO)
+        bw_px = int(bboxC.width * w)
+        bh_px = int(bboxC.height * h)
+        if bw_px < _MIN_FACE_PX or bh_px < _MIN_FACE_PX:
+            continue
 
-    x = max(0, int(bboxC.xmin * w) - pad_x)
-    y = max(0, int(bboxC.ymin * h) - pad_y)
-    x2 = min(w, int(bboxC.xmin * w) + bw_px + pad_x)
-    y2 = min(h, int(bboxC.ymin * h) + bh_px + pad_y)
+        pad_x = int(bw_px * _PAD_RATIO)
+        pad_y = int(bh_px * _PAD_RATIO)
 
-    face = frame[y:y2, x:x2]
-    if face.size == 0:
-        return None, None
+        x  = max(0, int(bboxC.xmin * w) - pad_x)
+        y  = max(0, int(bboxC.ymin * h) - pad_y)
+        x2 = min(w, int(bboxC.xmin * w) + bw_px + pad_x)
+        y2 = min(h, int(bboxC.ymin * h) + bh_px + pad_y)
 
-    bbox = {
-        "x": bboxC.xmin,
-        "y": bboxC.ymin,
-        "width": bboxC.width,
-        "height": bboxC.height,
-    }
+        face = frame[y:y2, x:x2]
+        if face.size == 0:
+            continue
 
-    gray = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
-    gray = _clahe.apply(gray)
-    resized = cv2.resize(gray, TARGET_SIZE, interpolation=cv2.INTER_AREA)
-    return resized, bbox
+        bbox = {
+            "x": bboxC.xmin,
+            "y": bboxC.ymin,
+            "width": bboxC.width,
+            "height": bboxC.height,
+        }
+
+        gray = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
+        gray = _clahe.apply(gray)
+        resized = cv2.resize(gray, TARGET_SIZE, interpolation=cv2.INTER_AREA)
+        faces.append((resized, bbox))
+
+    # Sort left-to-right so face index matches client-side MediaPipe scan order
+    faces.sort(key=lambda item: item[1]["x"])
+    return faces

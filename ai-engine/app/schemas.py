@@ -17,7 +17,17 @@ class EmotionResult(BaseModel):
     bbox: BoundingBox | None = None
 
 
+class FaceResult(BaseModel):
+    face_index: int
+    bbox: BoundingBox
+    emotion: str
+    confidence: float
+    engagement: str
+    all_scores: dict[str, float]
+
+
 class PredictResponse(BaseModel):
     success: bool
-    result: EmotionResult | None = None
+    results: list[FaceResult] = []
+    face_count: int = 0
     message: str = ""

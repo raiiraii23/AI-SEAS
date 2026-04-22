@@ -26,6 +26,7 @@ class EngagementLogController extends Controller
             'confidence'    => 'required|numeric|min:0|max:1',
             'engagement'    => 'required|in:engaged,neutral,confused,disengaged,unknown',
             'all_scores'    => 'sometimes|array',
+            'face_index'    => 'sometimes|nullable|integer|min:0',
             'logged_at'     => 'sometimes|date',
         ]);
 
@@ -34,6 +35,7 @@ class EngagementLogController extends Controller
             'confidence' => $data['confidence'],
             'engagement' => $data['engagement'],
             'all_scores' => $data['all_scores'] ?? [],
+            'face_index' => $data['face_index'] ?? null,
             'logged_at'  => $data['logged_at'] ?? now(),
         ]);
 
