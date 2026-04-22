@@ -1,22 +1,18 @@
 import numpy as np
+import tensorflow as tf
 from app.models.model_loader import get_model
 from app.config import settings
 from app.schemas import EmotionResult
 
 
 def predict_emotion(face_roi: np.ndarray) -> EmotionResult:
-    """
-    Run CNN inference on a 48x48 grayscale face ROI.
-    Returns EmotionResult with top emotion, confidence, engagement label,
-    and full score distribution.
-    """
     model = get_model()
 
-    # Normalize and reshape to (1, 48, 48, 1)
     img = face_roi.astype("float32") / 255.0
-    img = np.expand_dims(img, axis=(0, -1))  # (1, 48, 48, 1)
+    img = np.expand_dims(img, axis=(0, -1))
 
-    predictions = model.predict(img, verbose=0)[0]  # shape: (7,)
+    # Direct call is ~10-50x faster than model.predict() for single images
+    predictions = model(tf.constant(img), training=False)[0].numpy()
 
     top_idx = int(np.argmax(predictions))
     top_emotion = settings.emotion_labels[top_idx]
@@ -24,7 +20,7 @@ def predict_emotion(face_roi: np.ndarray) -> EmotionResult:
     engagement = settings.engagement_map.get(top_emotion, "neutral")
 
     all_scores = {
-        label: float(predictions[i])
+        label: round(float(predictions[i]), 4)
         for i, label in enumerate(settings.emotion_labels)
     }
 
@@ -33,5 +29,5 @@ def predict_emotion(face_roi: np.ndarray) -> EmotionResult:
         confidence=round(confidence, 4),
         engagement=engagement,
         all_scores=all_scores,
-        face_detected=False,  # caller sets this to True
+        face_detected=False,
     )

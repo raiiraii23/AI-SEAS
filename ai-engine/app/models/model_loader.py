@@ -9,21 +9,12 @@ _model: tf.keras.Model | None = None
 
 
 def _build_dummy_model() -> tf.keras.Model:
-    """
-    Creates an untrained model with the correct input/output shape.
-    Used automatically when no trained model is found.
-    Predictions will be random — replace by running training/train.py with FER-2013.
-    """
-    from tensorflow.keras import layers, models as km
-    model = km.Sequential([
-        layers.Conv2D(32, (3, 3), padding="same", activation="relu", input_shape=(48, 48, 1)),
-        layers.MaxPooling2D(2, 2),
-        layers.Conv2D(64, (3, 3), padding="same", activation="relu"),
-        layers.MaxPooling2D(2, 2),
-        layers.Flatten(),
-        layers.Dense(128, activation="relu"),
-        layers.Dense(7, activation="softmax"),
-    ], name="seas_emotion_cnn_dummy")
+    from tensorflow.keras import layers
+    inputs = layers.Input(shape=(48, 48, 1))
+    x = layers.Conv2D(32, 3, padding="same", activation="relu")(inputs)
+    x = layers.GlobalAveragePooling2D()(x)
+    x = layers.Dense(7, activation="softmax")(x)
+    model = tf.keras.Model(inputs=inputs, outputs=x, name="seas_emotion_cnn_dummy")
     model.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["accuracy"])
     return model
 

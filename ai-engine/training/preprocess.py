@@ -15,10 +15,11 @@ Download FER-2013 from Kaggle:
 import os
 import numpy as np
 import cv2
-from sklearn.model_selection import train_test_split
 
 EMOTION_LABELS = ["angry", "disgust", "fear", "happy", "sad", "surprise", "neutral"]
 IMG_SIZE = (48, 48)
+
+_clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))
 
 
 def load_dataset(data_dir: str) -> tuple[np.ndarray, np.ndarray]:
@@ -36,6 +37,7 @@ def load_dataset(data_dir: str) -> tuple[np.ndarray, np.ndarray]:
             if img is None:
                 continue
             img = cv2.resize(img, IMG_SIZE)
+            img = _clahe.apply(img)
             images.append(img)
             labels.append(label_idx)
 

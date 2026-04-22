@@ -69,11 +69,17 @@ async def video_stream():
             yield b"--frame\r\nContent-Type: text/plain\r\nContent-Length: 21\r\n\r\nRTSP stream not ready\r\n"
             return
 
+        last_frame = None
         while True:
             frame_bytes = manager.get_frame()
             if frame_bytes is None:
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)
                 continue
+
+            if frame_bytes is last_frame:
+                await asyncio.sleep(0.01)
+                continue
+            last_frame = frame_bytes
 
             yield (
                 boundary + b"\r\n"
@@ -81,7 +87,7 @@ async def video_stream():
                 b"Content-Length: " + str(len(frame_bytes)).encode() + b"\r\n\r\n"
                 + frame_bytes + b"\r\n"
             )
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.01)
 
     return StreamingResponse(
         frame_generator(), media_type="multipart/x-mixed-replace; boundary=frame"

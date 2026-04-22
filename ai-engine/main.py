@@ -11,7 +11,7 @@ from app.services.rtsp_stream import init_rtsp_manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_model_on_startup()
-    rtsp_url = os.getenv("RTSP_URL", "rtsp://python_stream:Raiiraii23!@192.168.8.15:554/stream1")
+    rtsp_url = os.getenv("RTSP_URL", "rtsp://admin:Raiiraii23!@192.168.8.101:554/stream1")
     init_rtsp_manager(rtsp_url)
     yield
 

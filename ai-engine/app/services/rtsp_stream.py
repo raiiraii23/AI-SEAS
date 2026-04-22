@@ -25,8 +25,7 @@ class RTSPStreamManager:
         self._is_connected = False
         self._last_frame_time: float = 0
 
-    # Target ~20 fps read rate — avoids hammering the CPU
-    _TARGET_FPS = 20
+    _TARGET_FPS = 25
     _FRAME_INTERVAL = 1.0 / _TARGET_FPS
 
     def start(self):
@@ -92,43 +91,39 @@ class RTSPStreamManager:
             logger.info("RTSP stream connected: %s", self.rtsp_url)
 
             # ---- Read loop ----
+            # grab() in a tight loop to drain FFMPEG's internal buffer
+            # so we always stay at the latest frame. Only decode+encode
+            # at target FPS to keep CPU usage reasonable.
             consecutive_failures = 0
+            last_encode = 0.0
             while self._running:
                 try:
-                    # Flush the internal buffer so we always decode the
-                    # *latest* frame rather than a stale queued one.
-                    # grab() is fast (just advances the demuxer), then
-                    # retrieve() decodes only the most recent frame.
                     if not self._cap.grab():
                         consecutive_failures += 1
                         if consecutive_failures > 30:
                             logger.warning("Too many grab failures — reconnecting.")
                             break
-                        time.sleep(0.05)
-                        continue
-
-                    ret, frame = self._cap.retrieve()
-                    if not ret or frame is None:
-                        consecutive_failures += 1
-                        if consecutive_failures > 30:
-                            logger.warning("Too many retrieve failures — reconnecting.")
-                            break
-                        time.sleep(0.05)
                         continue
 
                     consecutive_failures = 0
 
-                    # Encode frame as JPEG
+                    now = time.monotonic()
+                    if now - last_encode < self._FRAME_INTERVAL:
+                        continue
+
+                    ret, frame = self._cap.retrieve()
+                    if not ret or frame is None:
+                        continue
+
                     ok, jpeg_buf = cv2.imencode(
-                        ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80]
+                        ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70]
                     )
                     if ok:
                         with self._frame_lock:
                             self._latest_frame = jpeg_buf.tobytes()
-                            self._last_frame_time = time.monotonic()
+                            self._last_frame_time = now
 
-                    # Throttle to target FPS
-                    time.sleep(self._FRAME_INTERVAL)
+                    last_encode = now
 
                 except Exception as e:
                     logger.error("Frame read error: %s", e)
